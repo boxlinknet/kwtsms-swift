@@ -10,12 +10,20 @@
  *       appName: "MyApp"
  *   )
  *
- *   let result = await service.sendOtp(phone: rawPhone, captchaToken: token, ip: clientIp)
+ *   let result = await service.sendOtp(phone: rawPhone, ip: clientIp)
  *   let result = await service.verifyOtp(phone: rawPhone, code: rawCode, ip: clientIp)
+ *
+ * With device attestation + auth token (production):
+ *   let service = OtpService(
+ *       sms: KwtSMS.fromEnv(),
+ *       store: MemoryOtpStore(),
+ *       appName: "MyApp",
+ *       deviceAttest: AppAttestVerifier(teamId: "...", bundleId: "..."),
+ *       auth: myJWTAuthenticator
+ *   )
  *
  * Swap the database:
  *   let store = MemoryOtpStore()          // dev / single-process
- *   let store = SQLiteOtpStore(path: "./otp.db")   // production
  *   let store = YourCustomStore()          // implement OtpStoreProtocol
  */
 
@@ -85,11 +93,45 @@ extension OtpStoreProtocol {
     public func setRateLimit(key: String, timestamps: [Date]) async {}
 }
 
-// MARK: - CAPTCHA Protocol
+// MARK: - Device Attestation Protocol
 
-/// CAPTCHA adapter interface. See captcha/ for Cloudflare Turnstile and hCaptcha implementations.
-public protocol CaptchaVerifier: Sendable {
-    func verify(token: String, ip: String?) async -> Bool
+/// Device attestation verifier (Apple App Attest / DeviceCheck).
+/// Proves requests come from a genuine app installation on a real device, not a script or bot.
+///
+/// Flow:
+///   1. iOS app generates an attestation key via DCAppAttestService
+///   2. On each request, app generates an assertion (signs the request data)
+///   3. Server verifies the assertion against the stored public key
+///
+/// See attestation/AppAttestVerifier.swift for the Apple App Attest implementation.
+public protocol DeviceAttestVerifier: Sendable {
+    /// Verify a device assertion.
+    /// - Parameters:
+    ///   - assertion: The assertion data from DCAppAttestService.generateAssertion()
+    ///   - keyId: The App Attest key identifier for this device
+    ///   - clientData: The client data hash that was signed (typically a hash of the request body)
+    /// - Returns: true if the assertion is valid (genuine device + genuine app)
+    func verify(assertion: Data, keyId: String, clientData: Data) async -> Bool
+}
+
+// MARK: - Token Authentication Protocol
+
+/// Authentication token verifier (JWT / session token).
+/// Requires users to be authenticated before requesting OTP.
+/// Useful for 2FA flows where the user is already partially logged in.
+///
+/// Example: verify a JWT before allowing OTP send:
+///   struct JWTAuthenticator: TokenAuthenticator {
+///       func validate(token: String) async -> Bool {
+///           // Decode and verify JWT signature, expiry, issuer
+///           return jwt.verify(token)
+///       }
+///   }
+public protocol TokenAuthenticator: Sendable {
+    /// Validate an authentication token.
+    /// - Parameter token: The auth token (from Authorization header, cookie, etc.)
+    /// - Returns: true if the token is valid and the user is authorized
+    func validate(token: String) async -> Bool
 }
 
 // MARK: - Result Types
@@ -198,11 +240,13 @@ func generateOtpCode() -> String {
 /// let service = OtpService(
 ///     sms: KwtSMS.fromEnv(),
 ///     store: MemoryOtpStore(),
-///     appName: "MyApp"
+///     appName: "MyApp",
+///     deviceAttest: appAttestVerifier,  // optional: Apple App Attest
+///     auth: jwtAuthenticator            // optional: require auth token
 /// )
 ///
 /// // In your send-otp route:
-/// let result = await service.sendOtp(phone: body.phone, captchaToken: body.token, ip: clientIp)
+/// let result = await service.sendOtp(phone: body.phone, ip: clientIp)
 ///
 /// // In your verify-otp route:
 /// let result = await service.verifyOtp(phone: body.phone, code: body.code, ip: clientIp)
@@ -211,7 +255,8 @@ func generateOtpCode() -> String {
 public actor OtpService {
     private let sms: KwtSMS
     private let store: OtpStoreProtocol
-    private let captcha: CaptchaVerifier?
+    private let deviceAttest: DeviceAttestVerifier?
+    private let auth: TokenAuthenticator?
     private let appName: String
 
     /// In-memory rate limit tier (always active, resets on restart).
@@ -221,12 +266,14 @@ public actor OtpService {
         sms: KwtSMS,
         store: OtpStoreProtocol,
         appName: String,
-        captcha: CaptchaVerifier? = nil
+        deviceAttest: DeviceAttestVerifier? = nil,
+        auth: TokenAuthenticator? = nil
     ) {
         self.sms = sms
         self.store = store
         self.appName = appName
-        self.captcha = captcha
+        self.deviceAttest = deviceAttest
+        self.auth = auth
     }
 
     // MARK: - sendOtp
@@ -235,30 +282,49 @@ public actor OtpService {
     ///
     /// Full flow:
     ///   1. Sanitize + validate phone (no SMS credit wasted on bad numbers)
-    ///   2. Verify CAPTCHA (if configured)
-    ///   3. Rate limit by IP (10 sends/hour)
-    ///   4. Rate limit by phone (3 sends/hour)
-    ///   5. Enforce 4-minute resend cooldown
-    ///   6. Generate 6-digit code + hash it with salt
-    ///   7. Persist record to store
-    ///   8. Send SMS via kwtSMS (only after all checks pass)
-    public func sendOtp(phone rawPhone: String, captchaToken: String? = nil, ip: String? = nil) async -> SendOtpResult {
+    ///   2. Validate auth token (if TokenAuthenticator configured — for 2FA flows)
+    ///   3. Verify device attestation (if DeviceAttestVerifier configured — blocks scripts/bots)
+    ///   4. Rate limit by IP (10 sends/hour)
+    ///   5. Rate limit by phone (3 sends/hour)
+    ///   6. Enforce 4-minute resend cooldown
+    ///   7. Generate 6-digit code + hash it with salt
+    ///   8. Persist record to store
+    ///   9. Send SMS via kwtSMS (only after all checks pass)
+    public func sendOtp(
+        phone rawPhone: String,
+        authToken: String? = nil,
+        assertion: Data? = nil,
+        keyId: String? = nil,
+        clientData: Data? = nil,
+        ip: String? = nil
+    ) async -> SendOtpResult {
         // 1. Sanitize + validate phone
         let (phone, phoneError) = sanitizePhone(rawPhone)
         if let err = phoneError { return SendOtpResult(success: false, error: err) }
 
-        // 2. CAPTCHA verification
-        if let captcha = captcha {
-            guard let token = captchaToken, !token.isEmpty else {
-                return SendOtpResult(success: false, error: "CAPTCHA token is required")
+        // 2. Auth token validation (for 2FA: user must be partially authenticated)
+        if let auth = auth {
+            guard let token = authToken, !token.isEmpty else {
+                return SendOtpResult(success: false, error: "Authentication token is required")
             }
-            let captchaOk = await captcha.verify(token: token, ip: ip)
-            if !captchaOk {
-                return SendOtpResult(success: false, error: "CAPTCHA verification failed. Please try again.")
+            let valid = await auth.validate(token: token)
+            if !valid {
+                return SendOtpResult(success: false, error: "Invalid or expired authentication token")
             }
         }
 
-        // 3. Rate limit by IP
+        // 3. Device attestation (proves request comes from genuine app on real device)
+        if let deviceAttest = deviceAttest {
+            guard let assertion = assertion, let keyId = keyId, let clientData = clientData else {
+                return SendOtpResult(success: false, error: "Device attestation is required")
+            }
+            let valid = await deviceAttest.verify(assertion: assertion, keyId: keyId, clientData: clientData)
+            if !valid {
+                return SendOtpResult(success: false, error: "Device attestation failed. Please update the app.")
+            }
+        }
+
+        // 4. Rate limit by IP
         if let ip = ip {
             let (limited, retryAfter) = await checkRateLimit(key: "ip:\(ip)", max: MAX_SENDS_PER_IP, window: RATE_WINDOW_SECONDS)
             if limited {
@@ -325,13 +391,24 @@ public actor OtpService {
     ///   6. Check: too many wrong attempts (>= 3, delete record, force resend)
     ///   7. Hash comparison (constant-time)
     ///   8. Wrong: increment attempts. Correct: mark used.
-    public func verifyOtp(phone rawPhone: String, code rawCode: String, ip: String? = nil) async -> VerifyOtpResult {
+    public func verifyOtp(phone rawPhone: String, code rawCode: String, authToken: String? = nil, ip: String? = nil) async -> VerifyOtpResult {
         // 1. Sanitize inputs
         let (phone, phoneError) = sanitizePhone(rawPhone)
         if let err = phoneError { return VerifyOtpResult(success: false, error: err) }
 
         let (code, codeError) = sanitizeCode(rawCode)
         if let err = codeError { return VerifyOtpResult(success: false, error: err) }
+
+        // 1b. Auth token validation (if configured)
+        if let auth = auth {
+            guard let token = authToken, !token.isEmpty else {
+                return VerifyOtpResult(success: false, error: "Authentication token is required")
+            }
+            let valid = await auth.validate(token: token)
+            if !valid {
+                return VerifyOtpResult(success: false, error: "Invalid or expired authentication token")
+            }
+        }
 
         // 2. Rate limit verify attempts (brute-force guard)
         let (limited, retryAfter) = await checkRateLimit(key: "verify:\(phone)", max: MAX_VERIFY_PER_PHONE, window: RATE_WINDOW_SECONDS)

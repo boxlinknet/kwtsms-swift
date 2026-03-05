@@ -1,7 +1,7 @@
 # Production OTP Flow with kwtSMS
 
-A complete, production-ready SMS OTP implementation for Swift.
-Drop-in adapters for any database. Framework wiring for Vapor and Hummingbird.
+A complete, production-ready SMS OTP implementation for Swift / iOS.
+Built for mobile apps: device attestation instead of CAPTCHA, rate limiting, code hashing, framework wiring.
 
 ---
 
@@ -14,41 +14,44 @@ User enters phone number
 1. Validate phone number locally       <- no SMS credit wasted on bad numbers
         |
         v
-2. Verify CAPTCHA (if configured)      <- blocks bots before any DB/SMS work
+2. Validate auth token (if 2FA)        <- only authenticated users can request OTP
         |
         v
-3. Check rate limits                   <- per-IP (10/hr) + per-phone (3/hr)
+3. Verify device attestation           <- blocks bots/scripts (App Attest)
         |
         v
-4. Check resend cooldown               <- 4-minute minimum between sends
+4. Check rate limits                   <- per-IP (10/hr) + per-phone (3/hr)
         |
         v
-5. Generate 6-digit code (cryptographic random)
+5. Check resend cooldown               <- 4-minute minimum between sends
         |
         v
-6. Hash code with SHA-256 + salt       <- DB leak won't expose codes
+6. Generate 6-digit code (cryptographic random)
         |
         v
-7. Save to database                    <- with 5-minute expiry
+7. Hash code with SHA-256 + salt       <- DB leak won't expose codes
         |
         v
-8. Send SMS via kwtSMS                 <- only after ALL checks pass
+8. Save to database                    <- with 5-minute expiry
+        |
+        v
+9. Send SMS via kwtSMS                 <- only after ALL checks pass
 
 -- User receives SMS, enters code --
 
-9. Validate phone + code input         <- sanitize, strip non-digits
+10. Validate phone + code input        <- sanitize, strip non-digits
         |
         v
-10. Rate limit verify attempts         <- max 5/hr (brute-force guard)
+11. Rate limit verify attempts         <- max 5/hr (brute-force guard)
         |
         v
-11. Check: used? expired? >3 attempts?
+12. Check: used? expired? >3 attempts?
         |
         v
-12. SHA-256 compare (constant-time)    <- wrong: increment attempts
-        |                                correct: mark used, return success
+13. SHA-256 compare (constant-time)    <- wrong: increment attempts
+        |                                 correct: mark used, return success
         v
-13. User is verified                   <- issue JWT / create session
+14. User is verified                   <- issue JWT / create session
 ```
 
 ---
@@ -89,7 +92,7 @@ let otp = OtpService(
 
 ```swift
 // Send OTP
-let sendResult = await otp.sendOtp(phone: body.phone, captchaToken: body.token, ip: clientIp)
+let sendResult = await otp.sendOtp(phone: body.phone, ip: clientIp)
 // sendResult.success / sendResult.error / sendResult.resendIn / sendResult.retryAfter
 
 // Verify OTP
@@ -187,76 +190,118 @@ CREATE TABLE otp_rate_limits (
 
 ---
 
-## CAPTCHA Setup
+## Device Attestation (Apple App Attest)
 
-### Option A: No CAPTCHA (trusted clients / dev)
+For iOS apps, device attestation replaces CAPTCHA. It proves each request comes from a genuine installation of YOUR app on a real Apple device.
 
-Omit the `captcha` parameter entirely.
+### What it blocks
+
+- Bots and scripts calling your API directly
+- Modified/jailbroken app builds
+- Replay attacks (each assertion is unique + counter-based)
+
+### How it works
+
+```
+iOS App (client)                          Your Server (backend)
+-------------------                       ---------------------
+1. Generate key pair
+   (DCAppAttestService.generateKey)
+
+2. Attest key with Apple         ------->  3. Verify attestation with Apple
+   (generateAttestation)                      Store public key for this device
+
+4. On each request, sign data    ------->  5. Verify assertion signature
+   (generateAssertion)                        against stored public key
+```
+
+### Client-side (iOS app)
 
 ```swift
-let otp = OtpService(sms: sms, store: store, appName: "MyApp")
+import DeviceCheck
+import CryptoKit
+
+let service = DCAppAttestService.shared
+
+// One-time: generate and attest a key
+let keyId = try await service.generateKey()
+let clientDataHash = Data(SHA256.hash(data: requestBodyData))
+let attestation = try await service.attestKey(keyId, clientDataHash: clientDataHash)
+// Send attestation + keyId to POST /auth/attest
+
+// Each OTP request: generate an assertion
+let assertion = try await service.generateAssertion(keyId, clientDataHash: clientDataHash)
+// Include assertion + keyId in POST /auth/send-otp body
 ```
 
-### Option B: Cloudflare Turnstile (recommended)
+### Server-side
 
-Free. Unlimited. Privacy-friendly. Works great in Kuwait/GCC.
-
-**Get your keys (5 minutes):**
-1. Go to [dash.cloudflare.com](https://dash.cloudflare.com) -> Zero Trust -> Turnstile
-2. Click "Add site" -> enter your domain
-3. Copy **Site Key** (frontend) and **Secret Key** (backend)
-
-**Add to your HTML:**
-```html
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-<div class="cf-turnstile" data-sitekey="YOUR_SITE_KEY"></div>
-```
-
-**Read the token on form submit:**
-```javascript
-const token = document.querySelector('[name="cf-turnstile-response"]').value;
-// Include in your fetch: { phone, captchaToken: token }
-```
-
-**Backend:**
 ```bash
-TURNSTILE_SECRET=your_secret_key
+APP_ATTEST_TEAM_ID=YOUR_TEAM_ID
+APP_ATTEST_BUNDLE_ID=com.yourcompany.yourapp
 ```
 
 ```swift
-let captcha = TurnstileVerifier(secret: ProcessInfo.processInfo.environment["TURNSTILE_SECRET"]!)
-let otp = OtpService(sms: sms, store: store, appName: "MyApp", captcha: captcha)
+let deviceAttest = AppAttestVerifier(
+    teamId: ProcessInfo.processInfo.environment["APP_ATTEST_TEAM_ID"]!,
+    bundleId: ProcessInfo.processInfo.environment["APP_ATTEST_BUNDLE_ID"]!
+)
+
+let otp = OtpService(
+    sms: sms,
+    store: store,
+    appName: "MyApp",
+    deviceAttest: deviceAttest
+)
 ```
 
-### Option C: hCaptcha
+### Simulator fallback
 
-Privacy-focused. GDPR-safe. Free tier: 1M verifications/month.
+`DCAppAttestService.shared.isSupported` returns `false` on the Simulator. During development, skip device attestation by not passing the `deviceAttest` parameter.
 
-**Get your keys:**
-1. Go to [dashboard.hcaptcha.com/signup](https://dashboard.hcaptcha.com/signup)
-2. Create a new site
-3. Copy **Site Key** and **Secret Key**
+---
 
-**Add to your HTML:**
-```html
-<script src="https://js.hcaptcha.com/1/api.js" async defer></script>
-<div class="h-captcha" data-sitekey="YOUR_SITE_KEY"></div>
-```
+## Auth Token Validation (JWT / Session)
 
-**Read the token:**
-```javascript
-const token = document.querySelector('[name="h-captcha-response"]').value;
-```
+For 2FA flows where the user is already partially authenticated (e.g., they entered their password and now need SMS verification), require a valid auth token before allowing OTP operations.
 
-**Backend:**
-```bash
-HCAPTCHA_SECRET=your_secret_key
-```
+### Setup
 
 ```swift
-let captcha = HCaptchaVerifier(secret: ProcessInfo.processInfo.environment["HCAPTCHA_SECRET"]!)
-let otp = OtpService(sms: sms, store: store, appName: "MyApp", captcha: captcha)
+struct MyJWTAuthenticator: TokenAuthenticator {
+    func validate(token: String) async -> Bool {
+        // Decode and verify JWT signature, expiry, issuer
+        // Return true if valid
+    }
+}
+
+let otp = OtpService(
+    sms: sms,
+    store: store,
+    appName: "MyApp",
+    auth: MyJWTAuthenticator()
+)
 ```
+
+### Usage
+
+```swift
+// Client sends auth token in request
+let result = await otp.sendOtp(phone: body.phone, authToken: body.authToken, ip: clientIp)
+
+// If auth is configured and token is missing/invalid:
+// result.success = false
+// result.error = "Authentication token is required" or "Invalid or expired authentication token"
+```
+
+### When to use
+
+| Scenario | Device Attest | Auth Token | Both |
+|----------|:---:|:---:|:---:|
+| Signup (new user, no account yet) | Yes | No | -- |
+| Login (phone as primary auth) | Yes | No | -- |
+| 2FA (password + SMS) | Yes | Yes | Yes |
+| Account recovery | Yes | No | -- |
 
 ---
 
@@ -311,9 +356,9 @@ KWTSMS_SENDER_ID=YOUR-APP
 # IMPORTANT for OTP: disable logging (OTP codes appear in message bodies)
 KWTSMS_LOG_FILE=
 
-# Optional -- CAPTCHA (pick one)
-TURNSTILE_SECRET=your_cloudflare_turnstile_secret
-HCAPTCHA_SECRET=your_hcaptcha_secret
+# Optional -- Device attestation
+APP_ATTEST_TEAM_ID=YOUR_TEAM_ID
+APP_ATTEST_BUNDLE_ID=com.yourcompany.yourapp
 ```
 
 ---
@@ -323,7 +368,8 @@ HCAPTCHA_SECRET=your_hcaptcha_secret
 Before going live, confirm:
 
 - [ ] `KWTSMS_LOG_FILE=` (empty): OTP codes must NOT be logged
-- [ ] CAPTCHA enabled in production (`TURNSTILE_SECRET` or `HCAPTCHA_SECRET` set)
+- [ ] Device attestation enabled for production iOS builds
+- [ ] Auth token validation enabled if this is a 2FA flow
 - [ ] Reverse proxy trust configured correctly (Vapor/Hummingbird)
 - [ ] `.env` file has proper permissions (not committed to git)
 - [ ] Using a persistent database adapter (not memory) in production
@@ -359,7 +405,7 @@ let userId = normalizePhone(rawInput)
 session.userId = userId
 ```
 
-### Comparing codes directly instead of using constant-time comparison
+### Comparing codes directly
 
 ```swift
 // Wrong -- timing attack possible + plain text stored
@@ -377,5 +423,20 @@ let _ = await sms.send(mobile: phone, message: message)
 let _ = await checkRateLimit(...)
 
 // Correct -- all checks run first (this library handles it)
-let result = await otp.sendOtp(phone: phone, captchaToken: token, ip: ip)
+let result = await otp.sendOtp(phone: phone, ip: ip)
+```
+
+### Skipping device attestation in production
+
+```swift
+// Wrong -- any script can call your API
+let otp = OtpService(sms: sms, store: store, appName: "MyApp")
+
+// Correct -- prove requests come from your real app
+let otp = OtpService(
+    sms: sms,
+    store: store,
+    appName: "MyApp",
+    deviceAttest: AppAttestVerifier(teamId: "...", bundleId: "...")
+)
 ```

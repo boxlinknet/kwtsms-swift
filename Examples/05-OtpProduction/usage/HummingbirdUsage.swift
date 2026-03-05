@@ -6,8 +6,8 @@
  *   .package(url: "https://github.com/boxlinknet/kwtsms-swift.git", from: "0.1.0")
  *
  * Routes:
- *   POST /auth/send-otp    body: { "phone": "...", "captchaToken": "..." }
- *   POST /auth/verify-otp  body: { "phone": "...", "code": "..." }
+ *   POST /auth/send-otp     body: { "phone": "...", "assertion": "<base64>", "keyId": "..." }
+ *   POST /auth/verify-otp   body: { "phone": "...", "code": "..." }
  *
  * Hummingbird is a newer, lighter alternative to Vapor.
  * Great for microservices and API-only backends.
@@ -20,15 +20,18 @@ import KwtSMS
 
 struct SendOtpRequest: Decodable {
     let phone: String
-    let captchaToken: String?
+    let assertion: String?   // base64-encoded App Attest assertion
+    let keyId: String?
+    let authToken: String?
 }
 
 struct VerifyOtpRequest: Decodable {
     let phone: String
     let code: String
+    let authToken: String?
 }
 
-// MARK: - Response types (Codable for JSON encoding)
+// MARK: - Response types
 
 struct SuccessResponse: ResponseCodable {
     let success: Bool
@@ -47,14 +50,21 @@ func addOtpRoutes(to router: Router<some RequestContext>) {
     let sms = KwtSMS.fromEnv()
     let store = MemoryOtpStore()
 
-    // Optional: CAPTCHA
-    // let captcha = TurnstileVerifier(secret: Environment.get("TURNSTILE_SECRET")!)
+    // Optional: Device attestation (recommended for iOS apps)
+    // let deviceAttest = AppAttestVerifier(
+    //     teamId: Environment.get("APP_ATTEST_TEAM_ID")!,
+    //     bundleId: Environment.get("APP_ATTEST_BUNDLE_ID")!
+    // )
+
+    // Optional: Auth token validation (for 2FA flows)
+    // let auth = MyJWTAuthenticator()
 
     let otp = OtpService(
         sms: sms,
         store: store,
         appName: "MyApp"
-        // captcha: captcha
+        // deviceAttest: deviceAttest,
+        // auth: auth
     )
 
     let auth = router.group("auth")
@@ -63,12 +73,21 @@ func addOtpRoutes(to router: Router<some RequestContext>) {
     auth.post("send-otp") { request, context -> Response in
         let body = try await request.decode(as: SendOtpRequest.self, context: context)
 
-        // Extract client IP from X-Forwarded-For or connection
         let ip = request.headers[.xForwardedFor].first
             ?? context.remoteAddress?.ipAddress
             ?? "127.0.0.1"
 
-        let result = await otp.sendOtp(phone: body.phone, captchaToken: body.captchaToken, ip: ip)
+        let assertion = body.assertion.flatMap { Data(base64Encoded: $0) }
+        let clientData = body.phone.data(using: .utf8)
+
+        let result = await otp.sendOtp(
+            phone: body.phone,
+            authToken: body.authToken,
+            assertion: assertion,
+            keyId: body.keyId,
+            clientData: clientData,
+            ip: ip
+        )
 
         let status: HTTPResponse.Status = result.success ? .ok : (result.retryAfter != nil ? .tooManyRequests : .badRequest)
         return try Response(status: status, body: .init(data: JSONEncoder().encode(result)))
@@ -82,7 +101,12 @@ func addOtpRoutes(to router: Router<some RequestContext>) {
             ?? context.remoteAddress?.ipAddress
             ?? "127.0.0.1"
 
-        let result = await otp.verifyOtp(phone: body.phone, code: body.code, ip: ip)
+        let result = await otp.verifyOtp(
+            phone: body.phone,
+            code: body.code,
+            authToken: body.authToken,
+            ip: ip
+        )
 
         if result.success {
             // User is verified. Create session / issue JWT here.
