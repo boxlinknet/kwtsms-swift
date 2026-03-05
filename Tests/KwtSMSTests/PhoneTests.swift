@@ -51,6 +51,11 @@ final class PhoneTests: XCTestCase {
         XCTAssertEqual(normalizePhone("0096598765432"), "96598765432")
     }
 
+    func testStripsSingleLeadingZero() {
+        // Local format with single leading zero (e.g. 098765432)
+        XCTAssertEqual(normalizePhone("098765432"), "98765432")
+    }
+
     func testEmptyString() {
         XCTAssertEqual(normalizePhone(""), "")
     }

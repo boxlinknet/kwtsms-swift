@@ -155,6 +155,27 @@ final class IntegrationTests: XCTestCase {
         XCTAssertTrue(["OK", "ERROR"].contains(result.result))
     }
 
+    func testSendSingleLeadingZero() async throws {
+        try skipIfNoCredentials()
+        // 098765432 → 98765432 after normalization (single leading zero stripped)
+        let result = await sms.send(mobile: "098765432", message: "Single leading zero test")
+        XCTAssertTrue(["OK", "ERROR"].contains(result.result))
+        // Number is valid (8 digits, passes length check) but may get ERR006/ERR025 from API
+    }
+
+    func testSendToCountryNotInCoverage() async throws {
+        try skipIfNoCredentials()
+        // Somalia (+252) is unlikely to be activated on a Kuwait test account
+        let result = await sms.send(mobile: "25261234567", message: "Coverage test")
+        // Expect ERROR with ERR026 (country not activated) or similar
+        XCTAssertEqual(result.result, "ERROR")
+        if let code = result.code {
+            XCTAssertTrue(["ERR006", "ERR025", "ERR026"].contains(code),
+                "Expected country/number error, got \(code): \(result.description ?? "")")
+        }
+        XCTAssertNotNil(result.action ?? result.description, "Should have error guidance")
+    }
+
     // MARK: - senderIds()
 
     func testSenderIdsReturnsList() async throws {
