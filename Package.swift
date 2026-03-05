@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "KwtSMS",
+    defaultLocalization: "en",
     platforms: [
         .iOS(.v15),
         .macOS(.v12),
@@ -16,6 +17,7 @@ let package = Package(
             targets: ["KwtSMS"]
         )
     ],
+    swiftLanguageVersions: [.v5],
     targets: [
         .target(
             name: "KwtSMS",
