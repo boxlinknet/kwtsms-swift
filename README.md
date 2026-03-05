@@ -1,5 +1,11 @@
 # kwtsms-swift
 
+[![Swift 5.7+](https://img.shields.io/badge/Swift-5.7+-orange.svg?style=flat-square)](https://swift.org)
+[![Platforms](https://img.shields.io/badge/Platforms-iOS%20|%20macOS%20|%20tvOS%20|%20watchOS%20|%20Linux-blue.svg?style=flat-square)](Package.swift)
+[![License](https://img.shields.io/github/license/boxlinknet/kwtsms-swift.svg?style=flat-square)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/boxlinknet/kwtsms-swift/test.yml?branch=main&style=flat-square&label=CI)](https://github.com/boxlinknet/kwtsms-swift/actions/workflows/test.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/boxlinknet/kwtsms-swift/codeql.yml?branch=main&style=flat-square&label=CodeQL)](https://github.com/boxlinknet/kwtsms-swift/actions/workflows/codeql.yml)
+
 Official Swift client library for the [kwtSMS](https://www.kwtsms.com/integrations.html) SMS gateway API.
 
 Zero dependencies. Async/await. Thread-safe. Works on iOS, macOS, tvOS, watchOS, and Linux (server-side Swift).
