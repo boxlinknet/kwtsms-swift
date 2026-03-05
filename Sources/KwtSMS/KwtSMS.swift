@@ -107,7 +107,7 @@ public struct DeliveryReportResult: Sendable {
 ///
 /// Usage:
 /// ```swift
-/// let sms = KwtSMS(username: "user", password: "pass")
+/// let sms = KwtSMS(username: "swift_username", password: "swift_password")
 /// let result = try await sms.send(mobile: "96598765432", message: "Hello!")
 /// ```
 public actor KwtSMS {

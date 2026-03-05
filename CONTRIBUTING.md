@@ -24,7 +24,7 @@
 
 5. Run integration tests (requires API credentials):
    ```bash
-   SWIFT_USERNAME=your_user SWIFT_PASSWORD=your_pass swift test --filter IntegrationTests
+   SWIFT_USERNAME=swift_username SWIFT_PASSWORD=swift_password swift test --filter IntegrationTests
    ```
 
 ## Branch Naming

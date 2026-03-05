@@ -42,8 +42,8 @@ func sendOTP(phone: String, sms: KwtSMS) async {
 
 // Usage
 let sms = KwtSMS(
-    username: "your_user",
-    password: "your_pass",
+    username: "swift_username",
+    password: "swift_password",
     senderId: "MY-APP-TXN",  // Use a Transactional sender ID for OTP
     testMode: true
 )

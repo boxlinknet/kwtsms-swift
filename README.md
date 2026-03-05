@@ -35,7 +35,7 @@ Add to your target:
 import KwtSMS
 
 // Create client with explicit credentials
-let sms = KwtSMS(username: "your_api_user", password: "your_api_pass")
+let sms = KwtSMS(username: "swift_username", password: "swift_password")
 
 // Or load from environment variables / .env file
 let sms = KwtSMS.fromEnv()
@@ -234,8 +234,8 @@ let result = await sms.send(
 ### Environment variables (server-side, recommended)
 
 ```bash
-export KWTSMS_USERNAME=your_api_user
-export KWTSMS_PASSWORD=your_api_pass
+export KWTSMS_USERNAME=swift_username
+export KWTSMS_PASSWORD=swift_password
 export KWTSMS_SENDER_ID=YOUR-SENDER    # optional, defaults to KWT-SMS
 export KWTSMS_TEST_MODE=0              # optional, set 1 for test mode
 export KWTSMS_LOG_FILE=kwtsms.log      # optional, empty string disables logging
@@ -250,8 +250,8 @@ let sms = KwtSMS.fromEnv()
 Create a `.env` file (add to `.gitignore`):
 
 ```ini
-KWTSMS_USERNAME=your_api_user
-KWTSMS_PASSWORD=your_api_pass
+KWTSMS_USERNAME=swift_username
+KWTSMS_PASSWORD=swift_password
 KWTSMS_SENDER_ID=YOUR-SENDER
 KWTSMS_TEST_MODE=0
 ```
@@ -307,7 +307,7 @@ func saveToKeychain(key: String, value: String) {
 Set `testMode: true` to queue messages without delivering them. No credits consumed.
 
 ```swift
-let sms = KwtSMS(username: "user", password: "pass", testMode: true)
+let sms = KwtSMS(username: "swift_username", password: "swift_password", testMode: true)
 let result = await sms.send(mobile: "96598765432", message: "Test")
 // Message appears in kwtsms.com Queue but is not delivered.
 // Delete from Queue to recover any held credits.
