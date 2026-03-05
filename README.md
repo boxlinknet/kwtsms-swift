@@ -1,6 +1,6 @@
 # kwtsms-swift
 
-Official Swift client library for the [kwtSMS](https://www.kwtsms.com) SMS gateway API.
+Official Swift client library for the [kwtSMS](https://www.kwtsms.com/integrations.html) SMS gateway API.
 
 Zero dependencies. Async/await. Thread-safe. Works on iOS, macOS, tvOS, watchOS, and Linux (server-side Swift).
 
