@@ -1,4 +1,6 @@
 .DS_Store
+.claude/
+docs/
 /.build
 /Packages
 xcuserdata/
