@@ -340,7 +340,7 @@ API `unix-timestamp` values are in GMT+3 (Asia/Kuwait server time), not UTC. Con
 
 Before going live:
 
-- [ ] CAPTCHA enabled on all SMS-triggering forms
+- [ ] Bot protection enabled (Device Attestation for iOS, CAPTCHA for web)
 - [ ] Rate limit per phone number (max 3-5/hour)
 - [ ] Rate limit per IP address (max 10-20/hour)
 - [ ] Rate limit per user/session if authenticated

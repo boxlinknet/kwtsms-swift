@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Production OTP example (`Examples/05-OtpProduction/`): complete send/verify flow with rate limiting, code hashing (SHA-256 + salt), constant-time comparison, resend cooldown, attempt tracking.
+- `OtpStoreProtocol` database adapter interface with `MemoryOtpStore` reference implementation.
+- `DeviceAttestVerifier` protocol and `AppAttestVerifier` for Apple App Attest (iOS bot prevention).
+- `TokenAuthenticator` protocol for JWT/session-based auth (2FA flows).
+- Vapor and Hummingbird framework usage examples.
+- CodeQL security analysis workflow (weekly + on push/PR).
+- Dependabot configuration for Swift packages and GitHub Actions.
+
 ## [0.1.0] - 2026-03-05
 
 ### Added

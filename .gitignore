@@ -1,13 +1,30 @@
+# macOS
 .DS_Store
+
+# Windows
+Thumbs.db
+
+# Claude Code
 .claude/
+
+# Internal docs / plans
 docs/
+
+# Swift Package Manager
 /.build
 /Packages
+Package.resolved
+.swiftpm/
+
+# Xcode
 xcuserdata/
 DerivedData/
-.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
-.netrc
 *.xcodeproj
-*.log
+*.xcworkspace
+
+# Credentials
+.netrc
 .env
-kwtsms.log
+
+# Logs
+*.log
