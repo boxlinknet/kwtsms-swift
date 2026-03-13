@@ -1,6 +1,6 @@
 # kwtsms-swift
 
-[![Swift 5.7+](https://img.shields.io/badge/Swift-5.7+-orange.svg?style=flat-square)](https://swift.org)
+[![Swift 5.10+](https://img.shields.io/badge/Swift-5.10+-orange.svg?style=flat-square)](https://swift.org)
 [![Platforms](https://img.shields.io/badge/Platforms-iOS%20|%20macOS%20|%20tvOS%20|%20watchOS%20|%20Linux-blue.svg?style=flat-square)](Package.swift)
 [![License](https://img.shields.io/github/license/boxlinknet/kwtsms-swift.svg?style=flat-square)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/boxlinknet/kwtsms-swift/test.yml?branch=main&style=flat-square&label=CI)](https://github.com/boxlinknet/kwtsms-swift/actions/workflows/test.yml)
@@ -17,13 +17,13 @@ Zero dependencies. Async/await. Thread-safe. Works on iOS, macOS, tvOS, watchOS,
 1. Open your project in Xcode.
 2. File > Add Package Dependencies.
 3. Enter: `https://github.com/boxlinknet/kwtsms-swift.git`
-4. Select version `0.1.0` or later.
+4. Select version `0.2.0` or later.
 
 ### Swift Package Manager (Package.swift)
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/boxlinknet/kwtsms-swift.git", from: "0.1.0")
+    .package(url: "https://github.com/boxlinknet/kwtsms-swift.git", from: "0.2.0")
 ]
 ```
 
@@ -180,12 +180,30 @@ These are exported publicly for use outside the client:
 ```swift
 import KwtSMS
 
-// Normalize a phone number (strip +, 00, spaces, dashes, convert Arabic digits)
+// Normalize a phone number (strip +, 00, spaces, dashes, convert Arabic digits, strip trunk prefix)
 let normalized = normalizePhone("+965 9876-5432")  // "96598765432"
+let saudi = normalizePhone("9660559123456")         // "966559123456" (trunk 0 stripped)
 
-// Validate a phone number
+// Validate a phone number (includes country-specific format checks)
 let (valid, error, normalized) = validatePhoneInput("user@email.com")
 // (false, "'user@email.com' is an email address, not a phone number", "")
+
+let (valid2, error2, _) = validatePhoneInput("96512345678")
+// (false, "Invalid Kuwait mobile number: after +965 must start with 4, 5, 6, 9", "96512345678")
+
+// Find country code from a normalized number (longest match: 3-digit, 2-digit, 1-digit)
+let cc = findCountryCode("96598765432")  // "965" (Kuwait)
+let cc2 = findCountryCode("201012345678")  // "20" (Egypt)
+
+// Validate against country-specific rules (80+ countries)
+let check = validatePhoneFormat("966559123456")  // (valid: true, error: nil)
+let bad = validatePhoneFormat("96655912345")     // (valid: false, error: "Invalid Saudi Arabia number: expected 9 digits after +966, got 8")
+
+// Access the phone rules table directly
+if let rule = phoneRules["965"] {
+    print(rule.localLengths)       // [8]
+    print(rule.mobileStartDigits)  // ["4", "5", "6", "9"]
+}
 
 // Clean a message (strip emojis, HTML, control chars, convert Arabic digits)
 let cleaned = cleanMessage("Hello \u{1F600} <b>World</b>")  // "Hello  World"
@@ -215,11 +233,12 @@ for (code, action) in apiErrors {
 ## Input Validation
 
 The `send()` method automatically:
-1. Normalizes all phone numbers (strips `+`, `00`, spaces, dashes, converts Arabic digits).
-2. Validates each number locally (rejects emails, too-short, too-long, no-digits).
-3. Deduplicates normalized numbers (e.g., `+96598765432` and `0096598765432` count as one).
-4. Cleans the message text (strips emojis, HTML tags, hidden control characters).
-5. Reports invalid numbers in the `invalid` field without crashing the call.
+1. Normalizes all phone numbers (strips `+`, `00`, spaces, dashes, converts Arabic digits, strips domestic trunk prefix).
+2. Validates each number locally (rejects emails, too-short, too-long, no-digits, wrong country format).
+3. Validates against country-specific rules for 80+ countries (local length, mobile prefix).
+4. Deduplicates normalized numbers (e.g., `+96598765432` and `0096598765432` count as one).
+5. Cleans the message text (strips emojis, HTML tags, hidden control characters).
+6. Reports invalid numbers in the `invalid` field without crashing the call.
 
 ```swift
 let result = await sms.send(
@@ -367,8 +386,8 @@ Swift packages are published via git tags on GitHub.
    ```
 3. Tag a release:
    ```bash
-   git tag 0.1.0
-   git push origin 0.1.0
+   git tag 0.3.0
+   git push origin 0.3.0
    ```
 4. Users add in Xcode: File > Add Package Dependencies > enter `https://github.com/boxlinknet/kwtsms-swift.git`.
 
@@ -376,9 +395,9 @@ The package is also auto-indexed on [Swift Package Index](https://swiftpackagein
 
 ## Requirements
 
-- Swift 5.7+
+- Swift 5.10+ (swift-tools-version 5.7, tested on 5.10 and 6.0)
 - iOS 15+ / macOS 12+ / tvOS 15+ / watchOS 8+
-- Linux (server-side Swift with Foundation)
+- Linux (server-side Swift with FoundationNetworking)
 - Zero external dependencies
 
 ## License
