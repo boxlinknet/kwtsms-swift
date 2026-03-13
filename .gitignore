@@ -4,8 +4,11 @@
 # Windows
 Thumbs.db
 
-# Claude Code
+# Claude Code / AI
 .claude/
+CLAUDE.md
+GEMINI.md
+AGENTS.md
 
 # Internal docs / plans
 docs/
@@ -22,9 +25,20 @@ DerivedData/
 *.xcodeproj
 *.xcworkspace
 
-# Credentials
+# Credentials / secrets
 .netrc
 .env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Archives
+*.zip
+*.tar.gz
 
 # Logs
 *.log

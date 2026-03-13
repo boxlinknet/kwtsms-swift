@@ -17,7 +17,6 @@ let package = Package(
             targets: ["KwtSMS"]
         )
     ],
-    swiftLanguageVersions: [.v5],
     targets: [
         .target(
             name: "KwtSMS",
