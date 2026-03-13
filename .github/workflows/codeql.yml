@@ -12,6 +12,8 @@ jobs:
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
+    container:
+      image: swift:6.0
     permissions:
       security-events: write
       actions: read
