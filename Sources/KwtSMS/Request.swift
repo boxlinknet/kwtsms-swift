@@ -46,8 +46,7 @@ func apiRequest(
 
     let data: Data
     do {
-        let result: (Data, URLResponse) = try await URLSession.shared.data(for: request)
-        data = result.0
+        data = try await performRequest(request)
     } catch let error as URLError where error.code == .timedOut {
         writeLog(logFile: logFile, endpoint: endpoint, request: payload, responseBody: "", ok: false, errorMessage: "Request timed out after \(Int(requestTimeout))s")
         throw KwtSMSError.networkError("Request timed out after \(Int(requestTimeout)) seconds")
@@ -68,4 +67,27 @@ func apiRequest(
     writeLog(logFile: logFile, endpoint: endpoint, request: payload, responseBody: responseBody, ok: isOK, errorMessage: nil)
 
     return json
+}
+
+/// Cross-platform async URLSession wrapper.
+///
+/// On Apple platforms, URLSession.data(for:) is available natively.
+/// On Linux (FoundationNetworking), we bridge the callback-based API to async.
+private func performRequest(_ request: URLRequest) async throws -> Data {
+    #if canImport(FoundationNetworking)
+    return try await withCheckedThrowingContinuation { continuation in
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            if let error = error {
+                continuation.resume(throwing: error)
+            } else if let data = data {
+                continuation.resume(returning: data)
+            } else {
+                continuation.resume(throwing: KwtSMSError.networkError("No data received"))
+            }
+        }.resume()
+    }
+    #else
+    let result: (Data, URLResponse) = try await URLSession.shared.data(for: request)
+    return result.0
+    #endif
 }
