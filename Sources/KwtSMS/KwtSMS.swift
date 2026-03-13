@@ -46,13 +46,13 @@ public struct BatchError: Sendable {
 }
 
 /// Result from the `validate()` method.
-public struct ValidateResult: Sendable {
+public struct ValidateResult: @unchecked Sendable {
     public let ok: [String]
     public let er: [String]
     public let nr: [String]
     public let rejected: [InvalidEntry]
     public let error: String?
-    public nonisolated(unsafe) let raw: [String: Any]?
+    public let raw: [String: Any]?
 }
 
 /// Result from the `senderIds()` method.

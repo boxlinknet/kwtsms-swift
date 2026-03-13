@@ -46,7 +46,8 @@ func apiRequest(
 
     let data: Data
     do {
-        (data, _) = try await URLSession.shared.data(for: request)
+        let result: (Data, URLResponse) = try await URLSession.shared.data(for: request)
+        data = result.0
     } catch let error as URLError where error.code == .timedOut {
         writeLog(logFile: logFile, endpoint: endpoint, request: payload, responseBody: "", ok: false, errorMessage: "Request timed out after \(Int(requestTimeout))s")
         throw KwtSMSError.networkError("Request timed out after \(Int(requestTimeout)) seconds")
