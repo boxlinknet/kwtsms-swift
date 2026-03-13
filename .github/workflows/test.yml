@@ -11,8 +11,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        swift: ['5.9', '5.10', '6.0']
+        swift: ['5.10', '6.0']
     container:
       image: swift:${{ matrix.swift }}
     steps:
